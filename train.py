@@ -74,6 +74,8 @@ parser.add_argument('--max_iter', type=int, default=160000)
 parser.add_argument('--batch_size', type=int, default=8)
 parser.add_argument('--style_weight', type=float, default=10.0)
 parser.add_argument('--content_weight', type=float, default=1.0)
+parser.add_argument('--classify_weight', type=float, default=1.0)
+parser.add_argument('--aesthetic_weight', type=float, default=1.0)
 parser.add_argument('--n_threads', type=int, default=16)
 parser.add_argument('--save_model_interval', type=int, default=10000)
 args = parser.parse_args()
@@ -115,10 +117,12 @@ for i in tqdm(range(args.max_iter)):
     adjust_learning_rate(optimizer, iteration_count=i)
     content_images = next(content_iter).to(device)
     style_images = next(style_iter).to(device)
-    loss_c, loss_s = network(content_images, style_images)
+    loss_c, loss_s, loss_cla, loss_aes = network(content_images, style_images)
     loss_c = args.content_weight * loss_c
     loss_s = args.style_weight * loss_s
-    loss = loss_c + loss_s
+    loss_cla = args.classify_weight * loss_cla
+    loss_aes = args.aesthetic_weight * loss_aes
+    loss = loss_c + loss_s + loss_cla + loss_aes
 
     optimizer.zero_grad()
     loss.backward()
