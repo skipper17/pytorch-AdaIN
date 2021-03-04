@@ -57,16 +57,16 @@ def adjust_learning_rate(optimizer, iteration_count):
 
 parser = argparse.ArgumentParser()
 # Basic options
-parser.add_argument('--content_dir', type=str, required=True,
+parser.add_argument('--content_dir', type=str, default='../../WikiArt-Emotions/data_91/content/',
                     help='Directory path to a batch of content images')
-parser.add_argument('--style_dir', type=str, required=True,
+parser.add_argument('--style_dir', type=str, default='../../WikiArt-Emotions/data_91/style/',
                     help='Directory path to a batch of style images')
 parser.add_argument('--vgg', type=str, default='models/vgg_normalised.pth')
 
 # training options
-parser.add_argument('--save_dir', default='./experiments',
+parser.add_argument('--save_dir', default='./2experiments',
                     help='Directory to save the model')
-parser.add_argument('--log_dir', default='./logs',
+parser.add_argument('--log_dir', default='./2logs',
                     help='Directory to save the log')
 parser.add_argument('--lr', type=float, default=1e-4)
 parser.add_argument('--lr_decay', type=float, default=5e-5)

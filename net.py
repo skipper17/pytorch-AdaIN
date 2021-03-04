@@ -106,10 +106,12 @@ class Net(nn.Module):
         self.enc_4 = nn.Sequential(*enc_layers[18:31])  # relu3_1 -> relu4_1
         self.decoder = decoder
         self.mse_loss = nn.MSELoss()
-        self.classify_model = MyVGG(MyVGG.make_layers(batch_norm=True)).restore("models/classify_")
+        self.classify_model = MyVGG(MyVGG.make_layers(batch_norm=True))
         self.classify_model.fix()
-        self.aesthetic_model = MyVGG(MyVGG.make_layers(batch_norm=True),num_classes=33).restore("models/aesthetic_")
+        self.classify_model.restore("models/classify_")
+        self.aesthetic_model = MyVGG(MyVGG.make_layers(batch_norm=True),num_classes=33)
         self.aesthetic_model.fix()
+        self.aesthetic_model.restore("models/aesthetic_")
         # fix the encoder
         for name in ['enc_1', 'enc_2', 'enc_3', 'enc_4']:
             for param in getattr(self, name).parameters():
