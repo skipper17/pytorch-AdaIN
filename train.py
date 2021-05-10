@@ -6,6 +6,7 @@ import torch.backends.cudnn as cudnn
 import torch.nn as nn
 import torch.utils.data as data
 from PIL import Image, ImageFile
+from torchvision.transforms.transforms import Resize
 from tensorboardX import SummaryWriter
 from torchvision import transforms
 from tqdm import tqdm
@@ -21,8 +22,9 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 def train_transform():
     transform_list = [
-        transforms.Resize(size=(512, 512)),
-        transforms.RandomCrop(256),
+        transforms.Resize(size=(256,256)),
+        # transforms.Resize(size=(512, 512)),
+        # transforms.RandomCrop(256),
         transforms.ToTensor()
     ]
     return transforms.Compose(transform_list)
@@ -57,16 +59,16 @@ def adjust_learning_rate(optimizer, iteration_count):
 
 parser = argparse.ArgumentParser()
 # Basic options
-parser.add_argument('--content_dir', type=str, default='../../WikiArt-Emotions/data_91/content/',
+parser.add_argument('--content_dir', type=str, default='../../train2014/',
                     help='Directory path to a batch of content images')
-parser.add_argument('--style_dir', type=str, default='../../WikiArt-Emotions/data_91/style/',
+parser.add_argument('--style_dir', type=str, default='../../WikiArt-Emotions/data/',
                     help='Directory path to a batch of style images')
 parser.add_argument('--vgg', type=str, default='models/vgg_normalised.pth')
 
 # training options
-parser.add_argument('--save_dir', default='./2experiments',
+parser.add_argument('--save_dir', default='./subnew5experiments',
                     help='Directory to save the model')
-parser.add_argument('--log_dir', default='./2logs',
+parser.add_argument('--log_dir', default='./subnew5logs',
                     help='Directory to save the log')
 parser.add_argument('--lr', type=float, default=1e-4)
 parser.add_argument('--lr_decay', type=float, default=5e-5)
@@ -74,8 +76,9 @@ parser.add_argument('--max_iter', type=int, default=160000)
 parser.add_argument('--batch_size', type=int, default=8)
 parser.add_argument('--style_weight', type=float, default=10.0)
 parser.add_argument('--content_weight', type=float, default=1.0)
-parser.add_argument('--classify_weight', type=float, default=1.0)
+parser.add_argument('--classify_weight', type=float, default=10.0)
 parser.add_argument('--aesthetic_weight', type=float, default=1.0)
+parser.add_argument('--total_variation_weight',type=float,default=1e-3)
 parser.add_argument('--n_threads', type=int, default=16)
 parser.add_argument('--save_model_interval', type=int, default=10000)
 args = parser.parse_args()
@@ -117,12 +120,13 @@ for i in tqdm(range(args.max_iter)):
     adjust_learning_rate(optimizer, iteration_count=i)
     content_images = next(content_iter).to(device)
     style_images = next(style_iter).to(device)
-    loss_c, loss_s, loss_cla, loss_aes = network(content_images, style_images)
+    loss_c, loss_s, loss_cla, loss_aes, loss_tv = network(content_images, style_images)
     loss_c = args.content_weight * loss_c
     loss_s = args.style_weight * loss_s
     loss_cla = args.classify_weight * loss_cla
     loss_aes = args.aesthetic_weight * loss_aes
-    loss = loss_c + loss_s + loss_cla + loss_aes
+    loss_tv = args.total_variation_weight * loss_tv
+    loss = loss_c + loss_s + loss_cla + loss_aes + loss_tv
 
     optimizer.zero_grad()
     loss.backward()
@@ -130,11 +134,23 @@ for i in tqdm(range(args.max_iter)):
 
     writer.add_scalar('loss_content', loss_c.item(), i + 1)
     writer.add_scalar('loss_style', loss_s.item(), i + 1)
-
+    writer.add_scalar('loss_clasify', loss_cla.item(), i + 1)
+    writer.add_scalar('loss_aesthetic', loss_aes.item(), i + 1)
+    writer.add_scalar('loss_tv', loss_tv.item(), i + 1)
     if (i + 1) % args.save_model_interval == 0 or (i + 1) == args.max_iter:
         state_dict = net.decoder.state_dict()
         for key in state_dict.keys():
             state_dict[key] = state_dict[key].to(torch.device('cpu'))
         torch.save(state_dict, save_dir /
                    'decoder_iter_{:d}.pth.tar'.format(i + 1))
+        state_dict = network.attention_conv1.state_dict()
+        for key in state_dict.keys():
+            state_dict[key] = state_dict[key].to(torch.device('cpu'))
+        torch.save(state_dict, save_dir /
+                   'attention_conv1_iter_{:d}.pth.tar'.format(i + 1))
+        state_dict = network.attention_conv2.state_dict()
+        for key in state_dict.keys():
+            state_dict[key] = state_dict[key].to(torch.device('cpu'))
+        torch.save(state_dict, save_dir /
+                   'attention_conv2_iter_{:d}.pth.tar'.format(i + 1))
 writer.close()

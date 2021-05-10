@@ -10,6 +10,11 @@ from torchvision.utils import save_image
 import net
 from function import adaptive_instance_normalization, coral
 
+import sys
+import pandas as pd
+sys.path.append("../..")
+from pic_cla.my_resnet import MyResNet
+from pic_cla.my_vgg import MyVGG
 
 def test_transform(size, crop):
     transform_list = []
@@ -21,11 +26,25 @@ def test_transform(size, crop):
     transform = transforms.Compose(transform_list)
     return transform
 
+classify_transform = transforms.Compose([
+                transforms.Resize(256),
+                transforms.CenterCrop(224),
+                transforms.ToTensor()
+                ])
+unloader_tf = transforms.ToPILImage()
 
-def style_transfer(vgg, decoder, content, style, alpha=1.0,
+def style_transfer(vgg, decoder, content, style, alpha=1.0, conv1=None,conv2=None,
                    interpolation_weights=None):
     assert (0.0 <= alpha <= 1.0)
     content_f = vgg(content)
+    if(conv1):
+        shape = content_f.shape
+        mat = conv1(content_f).view(shape[0],shape[1]//2,-1)
+        another_mat = conv2(content_f).view(shape[0],shape[1],-1)
+        mat = torch.matmul(mat.transpose(1,2),mat)
+        mat = nn.functional.softmax(mat,2)
+        att = torch.matmul(another_mat,mat).reshape(shape)
+        # content_f = att*content_f + content_f
     style_f = vgg(style)
     if interpolation_weights:
         _, C, H, W = content_f.size()
@@ -44,17 +63,18 @@ parser = argparse.ArgumentParser()
 # Basic options
 parser.add_argument('--content', type=str,
                     help='File path to the content image')
-parser.add_argument('--content_dir', type=str,
+parser.add_argument('--content_dir', type=str, default="input/content/",
                     help='Directory path to a batch of content images')
 parser.add_argument('--style', type=str,
                     help='File path to the style image, or multiple style \
                     images separated by commas if you want to do style \
                     interpolation or spatial control')
-parser.add_argument('--style_dir', type=str,
+parser.add_argument('--style_dir', type=str,default="input/style/",
                     help='Directory path to a batch of style images')
 parser.add_argument('--vgg', type=str, default='models/vgg_normalised.pth')
-parser.add_argument('--decoder', type=str, default='models/decoder.pth')
-
+parser.add_argument('--decoder', type=str, default='new5experiments/decoder_iter_160000.pth.tar')
+parser.add_argument('--conv1', type=str, default='new5experiments/attention_conv1_iter_160000.pth.tar')
+parser.add_argument('--conv2', type=str, default='new5experiments/attention_conv2_iter_160000.pth.tar')
 # Additional options
 parser.add_argument('--content_size', type=int, default=512,
                     help='New (minimum) size for the content image, \
@@ -66,7 +86,7 @@ parser.add_argument('--crop', action='store_true',
                     help='do center crop to create squared image')
 parser.add_argument('--save_ext', default='.jpg',
                     help='The extension name of the output image')
-parser.add_argument('--output', type=str, default='output',
+parser.add_argument('--output', type=str, default='new5_output',
                     help='Directory to save the output image(s)')
 
 # Advanced options
@@ -114,20 +134,35 @@ else:
 
 decoder = net.decoder
 vgg = net.vgg
-
+conv1 = nn.Conv2d(512,256,1)
+conv2 = nn.Conv2d(512,512,1)
 decoder.eval()
 vgg.eval()
+conv1.eval()
+conv2.eval()
 
 decoder.load_state_dict(torch.load(args.decoder))
 vgg.load_state_dict(torch.load(args.vgg))
+conv1.load_state_dict(torch.load(args.conv1))
+conv2.load_state_dict(torch.load(args.conv2))
 vgg = nn.Sequential(*list(vgg.children())[:31])
 
 vgg.to(device)
 decoder.to(device)
-
+conv1.to(device)
+conv2.to(device)
 content_tf = test_transform(args.content_size, args.crop)
 style_tf = test_transform(args.style_size, args.crop)
+classify_model = MyVGG(MyVGG.make_layers(batch_norm=True))
+classify_model.to(device)
 
+classify_model.restore("models/classify_")
+classify_model.eval()
+root="../../WikiArt-Emotions"
+labels = pd.read_csv(root + "/WikiArt-Emotions-All.tsv",sep='\t')
+sum = 0.0
+top1 = 0.0
+top3 = 0.0
 for content_path in content_paths:
     if do_interpolation:  # one content image, N style image
         style = torch.stack([style_tf(Image.open(str(p))) for p in style_paths])
@@ -137,25 +172,42 @@ for content_path in content_paths:
         content = content.to(device)
         with torch.no_grad():
             output = style_transfer(vgg, decoder, content, style,
-                                    args.alpha, interpolation_weights)
+                                    args.alpha,conv1,conv2, interpolation_weights)
         output = output.cpu()
         output_name = output_dir / '{:s}_interpolation{:s}'.format(
             content_path.stem, args.save_ext)
         save_image(output, str(output_name))
 
-    else:  # process one content and one style
+    else:  # process one content and one style 
+        # TODO: Finish top3 test
         for style_path in style_paths:
             content = content_tf(Image.open(str(content_path)))
             style = style_tf(Image.open(str(style_path)))
+            pos = int(style_path.stem)
             if args.preserve_color:
                 style = coral(style, content)
             style = style.to(device).unsqueeze(0)
             content = content.to(device).unsqueeze(0)
             with torch.no_grad():
                 output = style_transfer(vgg, decoder, content, style,
-                                        args.alpha)
-            output = output.cpu()
-
+                                        args.alpha,conv1,conv2)
+            output = output.cpu()       
+            flag = classify_model(classify_transform(unloader_tf(output.squeeze(0))).unsqueeze(0).to(device)).squeeze(0)
+            label = torch.tensor(labels.loc[pos][12:32].tolist(),dtype = torch.float32).to(device)
+            print(flag)
+            ## do classify           
             output_name = output_dir / '{:s}_stylized_{:s}{:s}'.format(
                 content_path.stem, style_path.stem, args.save_ext)
             save_image(output, str(output_name))
+            sum+=1
+            _,out_max_index = torch.max(flag, 0)
+            _,lab_max_index = torch.max(label, 0)
+            _,lab_max_index3 = torch.topk(label,3,dim=0)
+            if(out_max_index == lab_max_index):
+                top1+=1
+            if(out_max_index in lab_max_index3):
+                top3+=1
+
+top1 = top1/sum
+top3 = top3/sum
+print("the accuracy is {:f}, top3 accuracy is {:f}".format(top1,top3))

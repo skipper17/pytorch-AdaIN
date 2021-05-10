@@ -58,3 +58,13 @@ I share the model trained by this code [here](https://drive.google.com/file/d/1Y
 ## References
 - [1]: X. Huang and S. Belongie. "Arbitrary Style Transfer in Real-time with Adaptive Instance Normalization.", in ICCV, 2017.
 - [2]: [Original implementation in Torch](https://github.com/xunhuang1995/AdaIN-style)
+
+6 add attention and tv loss on val2014  data
+5 add attention and tv loss on train2014 data
+4 add attention and tv loss on data91
+need to opt classification
+finished to opt classification
+
+test train2014 data 30 classify
+
+test2 train2014 data 100 classify
